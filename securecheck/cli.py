@@ -6,7 +6,7 @@ from .reporters import to_json, to_sarif, to_terminal
 from .rules import discover_files, is_kconfig_file, scan_file
 
 SEVERITY_ORDER = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}
-SUPPORTED = {".ino", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".py", ".json", ".yaml", ".yml", ".toml"}
+SUPPORTED = {".ino", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".py", ".json", ".yaml", ".yml", ".toml", ".ini", ".conf", ".cfg", ".properties"}
 
 def build_parser():
     parser = argparse.ArgumentParser(prog="securecheck", description="Static security checks for ESP32 and Arduino firmware.")
@@ -29,6 +29,13 @@ def run_scan(args):
         files = [root] if root.suffix.lower() in SUPPORTED or is_kconfig_file(root) else []
     else:
         files = discover_files(root, args.exclude)
+
+    if not files:
+        print(
+            f"Error: no supported source or configuration files found to scan in {root}",
+            file=sys.stderr,
+        )
+        return 2
 
     findings = []
     for file_path in files:

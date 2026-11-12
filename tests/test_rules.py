@@ -11,7 +11,7 @@ def test_ignores_placeholder_password():
     assert "SEC001" not in ids_for('const char* password = "YOUR_WIFI_PASSWORD";')
 
 def test_detects_plain_http_but_ignores_loopback():
-    ids = ids_for('const char* a = "http://example.com";\nconst char* b = "http://localhost";')
+    ids = ids_for('const char* a = "http://api.device.local";\nconst char* b = "http://localhost";')
     assert ids.count("NET001") == 1
 
 def test_detects_insecure_tls():
@@ -55,11 +55,11 @@ def test_ignores_commented_out_cpp_patterns():
     assert "WIFI001" not in ids
 
 def test_preserves_http_url_in_string_and_ignores_comment_url():
-    source = 'const char* endpoint = "http://example.com"; // http://comment-only.example'
+    source = 'const char* endpoint = "http://api.device.local"; // http://comment-only.example'
     assert ids_for(source).count("NET001") == 1
 
 def test_ignores_python_comment_but_scans_string():
-    source = '# client.setInsecure()\nurl = "http://example.com"\n'
+    source = '# client.setInsecure()\nurl = "http://api.device.local"\n'
     findings = scan_file(Path("sample.py"), source)
     ids = [finding.rule_id for finding in findings]
     assert "TLS001" not in ids
@@ -93,3 +93,43 @@ def test_discovers_sdkconfig_files(tmp_path):
 
 def test_detects_esp_tls_skip_common_name():
     assert "TLS001" in ids_for("esp_tls_cfg_t cfg = {.skip_common_name = true};")
+
+
+def test_ignores_reserved_example_domains():
+    assert "NET001" not in ids_for('const char* endpoint = "http://example.org/api";')
+
+def test_ignores_library_manifest_reference_urls():
+    source = '"url": "http://maintainer.example.net",'
+    findings = scan_file(Path("library.json"), source)
+    assert "NET001" not in [f.rule_id for f in findings]
+
+def test_ignores_embedded_html_links_and_device_metadata_urls():
+    source = """<a href='http://vendor.example'>vendor</a>;
+<manufacturerURL>http://vendor.example</manufacturerURL>;"""
+    assert "NET001" not in ids_for(source)
+
+def test_legacy_hash_is_a_low_severity_review_item():
+    finding = scan_file(Path("sample.ino"), "SHA1(data);")[0]
+    assert finding.rule_id == "CRY001"
+    assert finding.severity == "LOW"
+
+def test_ini_configuration_files_are_scanned():
+    findings = scan_file(Path("platformio.ini"), 'endpoint = "http://api.device.local"')
+    assert "NET001" in [f.rule_id for f in findings]
+
+
+def test_ignores_library_properties_metadata_url():
+    source = "url=http://playground.arduino.cc/Code/Time"
+    findings = scan_file(Path("library.properties"), source)
+    assert "NET001" not in [f.rule_id for f in findings]
+
+def test_ota_disabled_by_default_is_not_reported():
+    source = (
+        "#ifndef OTA_ENABLE\n"
+        "#define OTA_ENABLE false\n"
+        "#endif\n"
+        "#if OTA_ENABLE\n"
+        "ArduinoOTA.begin();\n"
+        "#endif\n"
+    )
+    assert "OTA001" not in ids_for(source)

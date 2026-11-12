@@ -5,7 +5,8 @@ from .models import Finding
 
 SOURCE_EXTENSIONS = {
     ".ino", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh",
-    ".py", ".json", ".yaml", ".yml", ".toml",
+    ".py", ".json", ".yaml", ".yml", ".toml", ".ini", ".conf", ".cfg",
+    ".properties",
 }
 CONFIG_FILE_NAMES = {"sdkconfig", "sdkconfig.defaults"}
 
@@ -56,10 +57,31 @@ def _is_placeholder(value: str) -> bool:
 def _finding(rule_id, severity, confidence, message, path, line, remediation):
     return Finding(rule_id, severity, confidence, message, str(path), line, remediation)
 
+def _is_reference_url(path: Path, line: str, host: str) -> bool:
+    """Ignore reserved example hosts and URLs used only as descriptive metadata."""
+    if host.lower() in {"example.com", "example.org", "example.net", "example.edu"}:
+        return True
+    if re.search(r"<(?:manufacturerURL|modelURL|presentationURL)\s*>", line, re.I):
+        return True
+    if re.search(r"\bhref\s*=", line, re.I):
+        return True
+    if path.name.lower() in {"library.json", "package.json", "component.json"}:
+        if re.search(r"""["'](?:url|homepage|repository|documentation|bugs)["']\s*:""", line, re.I):
+            return True
+    if path.name.lower() == "library.properties":
+        if re.search(r"^\s*(?:url|homepage|repository)\s*=", line, re.I):
+            return True
+    return False
+
 def _strip_comments(text: str, suffix: str) -> str:
     """Remove source comments while preserving strings, newlines, and line numbers."""
     c_style = suffix in {".ino", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh"}
-    hash_style = suffix in {".py", ".yaml", ".yml", ".toml"}
+    hash_style = suffix in {".py", ".yaml", ".yml", ".toml", ".ini", ".conf", ".cfg", ".properties"}
+    hash_comment_chars = {"#"}
+    if suffix in {".ini", ".cfg"}:
+        hash_comment_chars.add(";")
+    if suffix == ".properties":
+        hash_comment_chars.add("!")
     chars = list(text)
     state = "code"
     quote = None
@@ -116,7 +138,7 @@ def _strip_comments(text: str, suffix: str) -> str:
             chars[i] = chars[i + 1] = " "
             state = "block_comment"
             i += 2
-        elif hash_style and char == "#":
+        elif hash_style and char in hash_comment_chars:
             chars[i] = " "
             state = "line_comment"
             i += 1
@@ -146,13 +168,16 @@ def scan_file(path: Path, text: str) -> list[Finding]:
 
         for match in HTTP_RE.finditer(line):
             host = match.group(1).lower()
-            if host not in {"localhost", "127.0.0.1", "0.0.0.0"}:
-                findings.append(_finding(
-                    "NET001", "MEDIUM", "MEDIUM",
-                    f"Plaintext HTTP URL points to '{host}'", path, number,
-                    "Prefer HTTPS with certificate validation for sensitive traffic. Document any intentional HTTP use in the threat model."
-                ))
-                break
+            if host in {"localhost", "127.0.0.1", "0.0.0.0"}:
+                continue
+            if _is_reference_url(path, line, host):
+                continue
+            findings.append(_finding(
+                "NET001", "MEDIUM", "MEDIUM",
+                f"Plaintext HTTP URL points to '{host}'", path, number,
+                "Prefer HTTPS with certificate validation for network endpoints. Review whether this URL is an active firmware connection, local captive-portal redirect, or informational reference."
+            ))
+            break
 
         if any(pattern.search(line) for pattern in TLS_PATTERNS):
             findings.append(_finding(
@@ -171,9 +196,10 @@ def scan_file(path: Path, text: str) -> list[Finding]:
         for pattern, algorithm in WEAK_CRYPTO_PATTERNS:
             if pattern.search(line):
                 findings.append(_finding(
-                    "CRY001", "MEDIUM", "MEDIUM",
-                    f"Weak or legacy hash algorithm detected: {algorithm}", path, number,
-                    "Avoid MD5 and SHA-1 for security-sensitive uses. Select a modern, reviewed cryptographic construction."
+                    "CRY001", "LOW", "MEDIUM",
+                    f"Review use of legacy hash algorithm: {algorithm}",
+                    path, number,
+                    "Do not use MD5 or SHA-1 where collision resistance, signatures, password storage, or authentication security is required. If used only for a non-security identifier or compatibility, document that purpose."
                 ))
                 break
 
@@ -207,7 +233,12 @@ def scan_file(path: Path, text: str) -> list[Finding]:
 
     begin_match = re.search(r"\bArduinoOTA\s*\.\s*begin\s*\(", joined)
     password_match = re.search(r"\bArduinoOTA\s*\.\s*setPassword(?:Hash)?\s*\(", joined)
-    if begin_match and not password_match:
+    ota_disabled_by_default = re.search(
+        r"(?m)^\s*#\s*ifndef\s+OTA_ENABLE\s*\n\s*#\s*define\s+OTA_ENABLE\s+(?:false|0)\b",
+        joined,
+        re.I,
+    )
+    if begin_match and not password_match and not ota_disabled_by_default:
         line_number = joined[:begin_match.start()].count("\n") + 1
         findings.append(_finding(
             "OTA001", "HIGH", "LOW",

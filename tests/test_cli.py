@@ -15,6 +15,12 @@ def test_missing_path_returns_error(tmp_path):
     args = build_parser().parse_args(["scan", str(tmp_path / "missing")])
     assert run_scan(args) == 2
 
+def test_no_supported_files_is_not_reported_as_a_clean_scan(tmp_path, capsys):
+    (tmp_path / "README.md").write_text("# Documentation only", encoding="utf-8")
+    args = build_parser().parse_args(["scan", str(tmp_path)])
+    assert run_scan(args) == 2
+    assert "no supported source or configuration files" in capsys.readouterr().err
+
 def test_sarif_paths_include_scan_directory_from_repository_root(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     project = tmp_path / "firmware"

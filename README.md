@@ -17,6 +17,8 @@ ESP32 SecureCheck scans source files for common security-sensitive patterns and 
 - Detect likely credential values passed to serial logging (DBG001).
 - Flag MD5 and SHA-1 usage (CRY001).
 - Terminal, JSON, and SARIF output.
+- Scans PlatformIO-style `.ini`, `.conf`, `.cfg`, and `.properties` configuration files, plus ESP-IDF `sdkconfig` files.
+- Avoids treating reserved example domains, package-manifest URL metadata, and HTML/XML descriptive links as firmware HTTP endpoints.
 - GitHub composite Action for scanning firmware on pushes and pull requests, with SARIF artifacts and optional code-scanning upload.
 - Runs locally; scanned source files are not uploaded by the tool.
 
@@ -65,7 +67,7 @@ You can also run it as a module:
 python -m securecheck scan .
 ```
 
-Use `--fail-on low`, `--fail-on medium`, or `--fail-on high` to return exit status `1` when a finding at or above that severity is present. Without `--fail-on`, a completed scan exits with status `0`, even when findings are reported. Invalid paths return status `2`.
+Use `--fail-on low`, `--fail-on medium`, or `--fail-on high` to return exit status `1` when a finding at or above that severity is present. Without `--fail-on`, a completed scan exits with status `0`, even when findings are reported. Invalid paths and scans that find no supported source/configuration files return status `2`; an empty scan is not reported as a clean result.
 
 ## Detection rules
 
@@ -78,9 +80,9 @@ Use `--fail-on low`, `--fail-on medium`, or `--fail-on high` to return exit stat
 | OTA001 | High | `ArduinoOTA.begin()` without a detectable password-setting call in the same file |
 | WIFI001 | Medium | Common one-argument `WiFi.softAP(ssid)` calls with no password argument |
 | DBG001 | Medium | Credential-like values passed to serial logging |
-| CRY001 | Medium | MD5 or SHA-1 usage |
+| CRY001 | Low | Review of MD5 or SHA-1 usage; assess whether the use is security-sensitive |
 
-Rules are pattern-based and intentionally limited. IDF001 reports only when both `CONFIG_ESP_TLS_INSECURE=y` and `CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y` are present in the same sdkconfig file. ESP-IDF documentation describes these options as a testing-only server-verification bypass; explicit per-connection certificate configuration may change the effective behavior. Review the project's TLS configuration before treating this finding as exploitable. See the [ESP-IDF ESP-TLS documentation](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/protocols/esp_tls.html). WIFI001 only recognizes the common one-argument call form; calls wrapped in helpers or configured elsewhere may not be detected. OTA001 only checks whether a password-setting call appears in the scanned file; it cannot establish whether OTA is reachable or exploitable, and it may miss configuration performed in another file. TLS001 recognizes only a limited set of common APIs and patterns.
+Rules are pattern-based and intentionally limited. IDF001 reports only when both `CONFIG_ESP_TLS_INSECURE=y` and `CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y` are present in the same sdkconfig file. ESP-IDF documentation describes these options as a testing-only server-verification bypass; explicit per-connection certificate configuration may change the effective behavior. Review the project's TLS configuration before treating this finding as exploitable. See the [ESP-IDF ESP-TLS documentation](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/protocols/esp_tls.html). WIFI001 only recognizes the common one-argument call form; calls wrapped in helpers or configured elsewhere may not be detected. OTA001 checks whether a password-setting call appears in the scanned file; it skips a local `OTA_ENABLE` macro that is explicitly set to `false` by default. It cannot see external compiler flags, so an override that enables OTA can still require manual review. The rule cannot establish whether OTA is reachable or exploitable, and it may miss configuration performed in another file. TLS001 recognizes only a limited set of common APIs and patterns.
 
 ## Example output
 
@@ -94,6 +96,10 @@ The repository includes `examples/vulnerable_firmware.ino` as a synthetic fixtur
 ## GitHub Actions
 
 Use the packaged composite action in your firmware repository to scan on pushes and pull requests. It creates a SARIF artifact automatically and can optionally publish findings to GitHub code scanning. See [GitHub Actions integration](docs/github-actions.md) for setup, inputs, and required permissions.
+
+## Evaluation
+
+See the [preliminary real-world evaluation](docs/evaluation-2026-11.md) for fixed-commit scans of public ESP32/Arduino projects, manually triaged findings, and known limitations. This is an early test, not evidence of broad adoption or a security certification.
 
 ## Development
 
