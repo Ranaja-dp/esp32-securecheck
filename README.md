@@ -17,6 +17,7 @@ ESP32 SecureCheck scans source files for common security-sensitive patterns and 
 - Detect likely credential values passed to serial logging (DBG001).
 - Flag MD5 and SHA-1 usage (CRY001).
 - Terminal, JSON, and SARIF output.
+- GitHub composite Action for scanning firmware on pushes and pull requests, with SARIF artifacts and optional code-scanning upload.
 - Runs locally; scanned source files are not uploaded by the tool.
 
 ## Requirements
@@ -89,6 +90,10 @@ HIGH   SEC001  src/main.cpp:12  Possible hardcoded credential or secret
 ```
 
 The repository includes `examples/vulnerable_firmware.ino` as a synthetic fixture for trying the rules. It contains deliberately fake values and must not be used on a real device.
+
+## GitHub Actions
+
+Use the packaged composite action in your firmware repository to scan on pushes and pull requests. It creates a SARIF artifact automatically and can optionally publish findings to GitHub code scanning. See [GitHub Actions integration](docs/github-actions.md) for setup, inputs, and required permissions.
 
 ## Development
 

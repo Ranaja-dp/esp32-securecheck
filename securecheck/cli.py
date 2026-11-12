@@ -37,7 +37,12 @@ def run_scan(args):
         except OSError as exc:
             print(f"Warning: cannot read {file_path}: {exc}", file=sys.stderr)
             continue
-        display_path = Path(file_path.name) if root.is_file() else file_path.relative_to(root)
+        # SARIF URIs must be relative to the repository checkout, not the
+        # selected scan subdirectory, so GitHub can map results to source files.
+        try:
+            display_path = file_path.relative_to(Path.cwd())
+        except ValueError:
+            display_path = Path(file_path.name) if root.is_file() else file_path.relative_to(root)
         findings.extend(scan_file(display_path, content))
 
     report = (to_json(findings, len(files)) if args.format == "json"
