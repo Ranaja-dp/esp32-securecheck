@@ -64,3 +64,32 @@ def test_ignores_python_comment_but_scans_string():
     ids = [finding.rule_id for finding in findings]
     assert "TLS001" not in ids
     assert "NET001" in ids
+
+
+def test_detects_esp_idf_tls_verification_bypass():
+    config = Path("sdkconfig")
+    source = (
+        "CONFIG_ESP_TLS_INSECURE=y\n"
+        "CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y\n"
+    )
+    findings = scan_file(config, source)
+    idf_findings = [f for f in findings if f.rule_id == "IDF001"]
+    assert len(idf_findings) == 1
+    assert idf_findings[0].line == 2
+    assert idf_findings[0].severity == "HIGH"
+
+def test_esp_idf_tls_rule_requires_both_options():
+    config = Path("sdkconfig.defaults")
+    source = "CONFIG_ESP_TLS_INSECURE=y\n# CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY is not set\n"
+    assert "IDF001" not in [f.rule_id for f in scan_file(config, source)]
+
+def test_discovers_sdkconfig_files(tmp_path):
+    from securecheck.rules import discover_files
+    (tmp_path / "sdkconfig").write_text("CONFIG_EXAMPLE=y\n", encoding="utf-8")
+    (tmp_path / "sdkconfig.defaults.esp32").write_text("CONFIG_EXAMPLE=y\n", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("not scanned\n", encoding="utf-8")
+    names = [p.name for p in discover_files(tmp_path)]
+    assert names == ["sdkconfig", "sdkconfig.defaults.esp32"]
+
+def test_detects_esp_tls_skip_common_name():
+    assert "TLS001" in ids_for("esp_tls_cfg_t cfg = {.skip_common_name = true};")

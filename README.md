@@ -10,6 +10,7 @@ ESP32 SecureCheck scans source files for common security-sensitive patterns and 
 
 - Detect likely hardcoded Wi-Fi credentials, passwords, API keys, and tokens (SEC001).
 - Flag plaintext HTTP URLs (NET001).
+- Scan ESP-IDF `sdkconfig` and `sdkconfig.defaults` for the documented insecure ESP-TLS verification bypass (IDF001).
 - Detect common disabled TLS certificate-verification patterns (TLS001).
 - Flag ArduinoOTA setup without an obvious password configuration (OTA001).
 - Flag common one-argument ESP32 `WiFi.softAP(ssid)` calls that create an open access point (WIFI001).
@@ -71,13 +72,14 @@ Use `--fail-on low`, `--fail-on medium`, or `--fail-on high` to return exit stat
 |---|---|---|
 | SEC001 | High | Likely hardcoded passwords, API keys, tokens, or secrets |
 | NET001 | Medium | Plaintext HTTP URLs (loopback URLs are ignored) |
-| TLS001 | High | Common patterns that disable TLS certificate verification |
+| TLS001 | High | Common patterns that disable TLS certificate and hostname verification |
+| IDF001 | High | Both ESP-IDF insecure ESP-TLS server-verification options enabled in an sdkconfig file |
 | OTA001 | High | `ArduinoOTA.begin()` without a detectable password-setting call in the same file |
 | WIFI001 | Medium | Common one-argument `WiFi.softAP(ssid)` calls with no password argument |
 | DBG001 | Medium | Credential-like values passed to serial logging |
 | CRY001 | Medium | MD5 or SHA-1 usage |
 
-Rules are pattern-based and intentionally limited. WIFI001 only recognizes the common one-argument call form; calls wrapped in helpers or configured elsewhere may not be detected. OTA001 only checks whether a password-setting call appears in the scanned file; it cannot establish whether OTA is reachable or exploitable, and it may miss configuration performed in another file. TLS001 recognizes only a limited set of common APIs and patterns.
+Rules are pattern-based and intentionally limited. IDF001 reports only when both `CONFIG_ESP_TLS_INSECURE=y` and `CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y` are present in the same sdkconfig file. ESP-IDF documentation describes these options as a testing-only server-verification bypass; explicit per-connection certificate configuration may change the effective behavior. Review the project's TLS configuration before treating this finding as exploitable. See the [ESP-IDF ESP-TLS documentation](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/protocols/esp_tls.html). WIFI001 only recognizes the common one-argument call form; calls wrapped in helpers or configured elsewhere may not be detected. OTA001 only checks whether a password-setting call appears in the scanned file; it cannot establish whether OTA is reachable or exploitable, and it may miss configuration performed in another file. TLS001 recognizes only a limited set of common APIs and patterns.
 
 ## Example output
 

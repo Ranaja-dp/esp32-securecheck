@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from . import __version__
 from .reporters import to_json, to_sarif, to_terminal
-from .rules import discover_files, scan_file
+from .rules import discover_files, is_kconfig_file, scan_file
 
 SEVERITY_ORDER = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}
 SUPPORTED = {".ino", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".py", ".json", ".yaml", ".yml", ".toml"}
@@ -26,7 +26,7 @@ def run_scan(args):
         print(f"Error: path does not exist: {root}", file=sys.stderr)
         return 2
     if root.is_file():
-        files = [root] if root.suffix.lower() in SUPPORTED else []
+        files = [root] if root.suffix.lower() in SUPPORTED or is_kconfig_file(root) else []
     else:
         files = discover_files(root, args.exclude)
 

@@ -7,6 +7,11 @@ SOURCE_EXTENSIONS = {
     ".ino", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh",
     ".py", ".json", ".yaml", ".yml", ".toml",
 }
+CONFIG_FILE_NAMES = {"sdkconfig", "sdkconfig.defaults"}
+
+def is_kconfig_file(path: Path) -> bool:
+    return path.name in CONFIG_FILE_NAMES or path.name.startswith("sdkconfig.defaults.")
+
 IGNORED_DIRS = {
     ".git", ".venv", "venv", "__pycache__", "build", "dist",
     "node_modules", ".pio", ".idea", ".vscode",
@@ -24,6 +29,7 @@ TLS_PATTERNS = [
     re.compile(r"\bverify\s*=\s*False\b"),
     re.compile(r"\bCERT_NONE\b"),
     re.compile(r"\bcheck_hostname\s*=\s*False\b"),
+    re.compile(r"\bskip_common_name\s*=\s*(?:true|1)\b", re.I),
 ]
 WEAK_CRYPTO_PATTERNS = [
     (re.compile(r"\bMD5\s*\(", re.I), "MD5"),
@@ -125,7 +131,8 @@ def _strip_comments(text: str, suffix: str) -> str:
 
 def scan_file(path: Path, text: str) -> list[Finding]:
     findings = []
-    cleaned = _strip_comments(text, path.suffix.lower())
+    comment_suffix = ".toml" if is_kconfig_file(path) else path.suffix.lower()
+    cleaned = _strip_comments(text, comment_suffix)
     lines = cleaned.splitlines()
     for number, line in enumerate(lines, start=1):
         for match in SECRET_RE.finditer(line):
@@ -171,6 +178,24 @@ def scan_file(path: Path, text: str) -> list[Finding]:
                 break
 
     joined = "\n".join(lines)
+    if is_kconfig_file(path):
+        insecure_flags = (
+            "CONFIG_ESP_TLS_INSECURE",
+            "CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY",
+        )
+        enabled = [
+            re.search(rf"^\s*{re.escape(flag)}\s*=\s*y\s*$", joined, re.M)
+            for flag in insecure_flags
+        ]
+        if all(enabled):
+            line_number = joined[:enabled[-1].start()].count("\n") + 1
+            findings.append(_finding(
+                "IDF001", "HIGH", "MEDIUM",
+                "ESP-IDF enables the insecure ESP-TLS server-verification bypass",
+                path, line_number,
+                "Disable CONFIG_ESP_TLS_INSECURE and CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY. Use a trusted CA certificate, the certificate bundle, a global CA store, or an intentionally managed PSK verification method."
+            ))
+
     for match in OPEN_SOFTAP_RE.finditer(joined):
         line_number = joined[:match.start()].count("\n") + 1
         findings.append(_finding(
@@ -199,6 +224,6 @@ def discover_files(root: Path, extra_excludes: list[str] | None = None) -> list[
         dirs[:] = sorted(d for d in dirs if d not in IGNORED_DIRS and d not in excludes)
         for name in sorted(names):
             candidate = Path(current) / name
-            if candidate.suffix.lower() in SOURCE_EXTENSIONS:
+            if candidate.suffix.lower() in SOURCE_EXTENSIONS or is_kconfig_file(candidate):
                 found.append(candidate)
     return sorted(found)
