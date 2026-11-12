@@ -13,7 +13,7 @@ IGNORED_DIRS = {
 }
 PLACEHOLDER_MARKERS = (
     "your_", "example", "placeholder", "change_me", "changeme",
-    "replace_me", "xxxx", "${", "{{", "<redacted",
+    "replace_me", "xxxx", "\x24{", "{{", "<redacted",
 )
 SECRET_RE = re.compile(
     r"""(?ix)\b(?:ssid|wifi_password|password|passwd|api[_-]?key|access[_-]?token|secret)\b\s*(?:=|:)\s*["']([^"'\\]{4,})["']"""
@@ -35,6 +35,11 @@ SERIAL_RE = re.compile(r"\bSerial[0-9]*\s*\.\s*print(?:ln)?\s*\(", re.I)
 SENSITIVE_NAME_RE = re.compile(
     r"\b(?:password|passwd|secret|token|api[_-]?key|wifi[_-]?(?:key|password))\b", re.I
 )
+# Matches the common one-argument Arduino ESP32 WiFi.softAP(ssid) form.
+# Calls with an explicit password are intentionally not reported.
+OPEN_SOFTAP_RE = re.compile(
+    r"\bWiFi\s*\.\s*softAP\s*\(\s*[^,()\n]+?\s*\)", re.I
+)
 
 def _is_placeholder(value: str) -> bool:
     normalized = value.strip().lower()
@@ -45,9 +50,83 @@ def _is_placeholder(value: str) -> bool:
 def _finding(rule_id, severity, confidence, message, path, line, remediation):
     return Finding(rule_id, severity, confidence, message, str(path), line, remediation)
 
+def _strip_comments(text: str, suffix: str) -> str:
+    """Remove source comments while preserving strings, newlines, and line numbers."""
+    c_style = suffix in {".ino", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh"}
+    hash_style = suffix in {".py", ".yaml", ".yml", ".toml"}
+    chars = list(text)
+    state = "code"
+    quote = None
+    triple = False
+    escaped = False
+    i = 0
+
+    while i < len(text):
+        char = text[i]
+        next_char = text[i + 1] if i + 1 < len(text) else ""
+
+        if state == "line_comment":
+            if char == "\n":
+                state = "code"
+            else:
+                chars[i] = " "
+            i += 1
+            continue
+
+        if state == "block_comment":
+            if char == "*" and next_char == "/":
+                chars[i] = chars[i + 1] = " "
+                state = "code"
+                i += 2
+            else:
+                if char != "\n":
+                    chars[i] = " "
+                i += 1
+            continue
+
+        if quote is not None:
+            if escaped:
+                escaped = False
+                i += 1
+            elif char == "\\":
+                escaped = True
+                i += 1
+            elif triple and text.startswith(quote * 3, i):
+                quote = None
+                triple = False
+                i += 3
+            elif not triple and char == quote:
+                quote = None
+                i += 1
+            else:
+                i += 1
+            continue
+
+        if c_style and char == "/" and next_char == "/":
+            chars[i] = chars[i + 1] = " "
+            state = "line_comment"
+            i += 2
+        elif c_style and char == "/" and next_char == "*":
+            chars[i] = chars[i + 1] = " "
+            state = "block_comment"
+            i += 2
+        elif hash_style and char == "#":
+            chars[i] = " "
+            state = "line_comment"
+            i += 1
+        elif char in {"'", '"'}:
+            quote = char
+            triple = suffix == ".py" and text.startswith(char * 3, i)
+            i += 3 if triple else 1
+        else:
+            i += 1
+
+    return "".join(chars)
+
 def scan_file(path: Path, text: str) -> list[Finding]:
     findings = []
-    lines = text.splitlines()
+    cleaned = _strip_comments(text, path.suffix.lower())
+    lines = cleaned.splitlines()
     for number, line in enumerate(lines, start=1):
         for match in SECRET_RE.finditer(line):
             if not _is_placeholder(match.group(1)):
@@ -92,6 +171,15 @@ def scan_file(path: Path, text: str) -> list[Finding]:
                 break
 
     joined = "\n".join(lines)
+    for match in OPEN_SOFTAP_RE.finditer(joined):
+        line_number = joined[:match.start()].count("\n") + 1
+        findings.append(_finding(
+            "WIFI001", "MEDIUM", "HIGH",
+            "Wi-Fi SoftAP appears to be created without a password",
+            path, line_number,
+            "Require a strong WPA2/WPA3 passphrase for the setup access point and avoid exposing sensitive services on an open network."
+        ))
+
     begin_match = re.search(r"\bArduinoOTA\s*\.\s*begin\s*\(", joined)
     password_match = re.search(r"\bArduinoOTA\s*\.\s*setPassword(?:Hash)?\s*\(", joined)
     if begin_match and not password_match:

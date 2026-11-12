@@ -12,6 +12,7 @@ ESP32 SecureCheck scans source files for common security-sensitive patterns and 
 - Flag plaintext HTTP URLs (NET001).
 - Detect common disabled TLS certificate-verification patterns (TLS001).
 - Flag ArduinoOTA setup without an obvious password configuration (OTA001).
+- Flag common one-argument ESP32 `WiFi.softAP(ssid)` calls that create an open access point (WIFI001).
 - Detect likely credential values passed to serial logging (DBG001).
 - Flag MD5 and SHA-1 usage (CRY001).
 - Terminal, JSON, and SARIF output.
@@ -72,10 +73,11 @@ Use `--fail-on low`, `--fail-on medium`, or `--fail-on high` to return exit stat
 | NET001 | Medium | Plaintext HTTP URLs (loopback URLs are ignored) |
 | TLS001 | High | Common patterns that disable TLS certificate verification |
 | OTA001 | High | `ArduinoOTA.begin()` without a detectable password-setting call in the same file |
+| WIFI001 | Medium | Common one-argument `WiFi.softAP(ssid)` calls with no password argument |
 | DBG001 | Medium | Credential-like values passed to serial logging |
 | CRY001 | Medium | MD5 or SHA-1 usage |
 
-Rules are pattern-based and intentionally limited. For example, OTA001 only checks whether a password-setting call appears in the scanned file; it cannot establish whether OTA is reachable or exploitable, and it may miss configuration performed in another file. TLS001 recognizes only a limited set of common APIs and patterns.
+Rules are pattern-based and intentionally limited. WIFI001 only recognizes the common one-argument call form; calls wrapped in helpers or configured elsewhere may not be detected. OTA001 only checks whether a password-setting call appears in the scanned file; it cannot establish whether OTA is reachable or exploitable, and it may miss configuration performed in another file. TLS001 recognizes only a limited set of common APIs and patterns.
 
 ## Example output
 
