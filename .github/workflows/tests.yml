@@ -1,0 +1,22 @@
+name: Tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: pytest
+      - run: securecheck scan examples --format sarif --output securecheck.sarif
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: securecheck-sarif
+          path: securecheck.sarif
